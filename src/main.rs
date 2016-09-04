@@ -1,15 +1,17 @@
-#[allow(dead_code)]
-#[allow(unused_parens)]
+#![allow(dead_code)]
 #[macro_use]
 extern crate vulkano;
 extern crate winit;
 extern crate vulkano_win;
 extern crate cgmath;
+extern crate time;
 
 mod renderer;
+mod window_state;
+mod camera;
 
 fn main() {
-    let renderer = renderer::Renderer::new();
+    let mut renderer = renderer::Renderer::new();
 
     renderer.run();
 }

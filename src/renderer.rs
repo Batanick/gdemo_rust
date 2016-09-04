@@ -1,8 +1,7 @@
-#[allow(dead_code, unused_parens)]
-
 extern crate vulkano;
 extern crate winit;
 extern crate vulkano_win;
+extern crate time;
 
 extern crate cgmath;
 
@@ -35,6 +34,8 @@ use vulkano::swapchain::Swapchain;
 use std::sync::Arc;
 use std::time::Duration;
 
+use camera::Camera;
+use window_state::WindowState;
 
 mod vs {
     include!{concat!(env!("OUT_DIR"), "/shaders/shaders/main_vs.glsl")}
@@ -92,6 +93,9 @@ pub struct Renderer {
 
     vertex_buffer: Arc<CpuAccessibleBuffer<[Vertex]>>,
     uniform_buffer: Arc<CpuAccessibleBuffer<vs::ty::Data>>,
+
+    camera: Camera,
+    window_state: WindowState,
 }
 
 impl Renderer {
@@ -179,7 +183,7 @@ impl Renderer {
                 .expect("failed to create buffer")
         };
 
-        let proj = cgmath::perspective(cgmath::rad(3.141592 / 2.0),
+        let proj = cgmath::perspective(cgmath::Rad(3.141592 / 2.0),
                                        {
                                            let d = images[0].dimensions();
                                            d[0] as f32 / d[1] as f32
@@ -254,7 +258,8 @@ impl Renderer {
             })
             .collect::<Vec<_>>();
 
-        return Renderer {
+        let window_state = WindowState::new(window.window());
+        Renderer {
             swapchain: swapchain,
             window: window,
             device: device,
@@ -265,10 +270,13 @@ impl Renderer {
             pipeline_layout: pipeline_layout,
             vertex_buffer: vertex_buffer,
             uniform_buffer: uniform_buffer,
-        };
+
+            camera: Camera::new(),
+            window_state: window_state,
+        }
     }
 
-    pub fn run(&self) {
+    pub fn run(&mut self) {
         let descriptor_pool =
             vulkano::descriptor::descriptor_set::DescriptorPool::new(&self.device);
 
@@ -278,34 +286,64 @@ impl Renderer {
                                                       uniforms: &self.uniform_buffer,
                                                   });
 
+        let mut focused = true;
+        let mut time_delta;
+        let mut last_tick_time = time::precise_time_ns();
 
         let mut submissions: Vec<Arc<Submission>> = Vec::new();
         loop {
-            submissions.retain(|s| s.destroying_would_block());
+            let current_time = time::precise_time_ns();
+            time_delta = ((current_time - last_tick_time) / 1000000) as f32;
 
-            let image_num = self.swapchain.acquire_next_image(Duration::new(1, 0)).unwrap();
-            let command_buffer = PrimaryCommandBufferBuilder::new(&self.device,
-                                                                  self.queue.family())
-                .draw_inline(&self.render_pass,
-                             &self.framebuffers[image_num],
-                             render_pass::ClearValues { color: [0.0, 0.0, 1.0, 1.0] })
-                .draw(&self.pipeline,
-                      &self.vertex_buffer,
-                      &DynamicState::none(),
-                      &set,
-                      &())
-                .draw_end()
-                .build();
+            if focused {
+                self.camera.update(&self.window_state, time_delta);
 
-            submissions.push(command_buffer::submit(&command_buffer, &self.queue).unwrap());
-            self.swapchain.present(&self.queue, image_num).unwrap();
+                submissions.retain(|s| s.destroying_would_block());
+
+                let image_num = self.swapchain.acquire_next_image(Duration::new(1, 0)).unwrap();
+                let command_buffer = PrimaryCommandBufferBuilder::new(&self.device,
+                                                                      self.queue.family())
+                    .draw_inline(&self.render_pass,
+                                 &self.framebuffers[image_num],
+                                 render_pass::ClearValues { color: [0.0, 0.0, 1.0, 1.0] })
+                    .draw(&self.pipeline,
+                          &self.vertex_buffer,
+                          &DynamicState::none(),
+                          &set,
+                          &())
+                    .draw_end()
+                    .build();
+
+                submissions.push(command_buffer::submit(&command_buffer, &self.queue).unwrap());
+                self.swapchain.present(&self.queue, image_num).unwrap();
+            }
 
             for ev in self.window.window().poll_events() {
                 match ev {
                     winit::Event::Closed => break,
+                    winit::Event::KeyboardInput(state, _, key_code) => {
+                        self.window_state
+                            .switch(key_code.unwrap_or(winit::VirtualKeyCode::NoConvert),
+                                    state == winit::ElementState::Pressed)
+                    }
+                    winit::Event::MouseMoved((mouse_x, mouse_y)) => {
+                        self.window_state.update_mouse(mouse_x, mouse_y)
+                    }
+                    winit::Event::Resized(width, height) => {
+                        self.window_state.update_size(width, height)
+                    }
+                    winit::Event::Focused(focus) => focused = focus,
                     _ => (),
                 }
             }
+
+            let size = self.window_state.get_window_size();
+            self.window
+                .window()
+                .set_cursor_position((size.0 / 2) as i32, (size.1 / 2) as i32)
+                .expect("Unable to update cursor position");
+
+            last_tick_time = current_time;
         }
 
     }
