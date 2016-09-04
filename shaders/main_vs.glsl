@@ -14,12 +14,16 @@
 #extension GL_ARB_shading_language_420pack : enable
 
 layout(location = 0) in vec3 position;
+layout(location = 1) in vec3 color;
 
 layout(set = 0, binding = 0) uniform Data {
     mat4 worldview;
     mat4 proj;
 } uniforms;
 
+layout(location = 0) out vec3 f_color;
+
 void main() {
     gl_Position = vec4(position, 1.0);
+    f_color = color;
 }

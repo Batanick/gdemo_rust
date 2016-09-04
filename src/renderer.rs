@@ -72,8 +72,9 @@ mod render_pass {
 #[derive(Debug, Clone)]
 struct Vertex {
     position: [f32; 3],
+    color: [f32; 3],
 }
-impl_vertex!(Vertex, position);
+impl_vertex!(Vertex, position, color);
 
 pub struct Renderer {
     device: Arc<Device>,
@@ -95,7 +96,6 @@ pub struct Renderer {
 
 impl Renderer {
     pub fn new() -> Renderer {
-
         let instance = {
             let extensions = vulkano_win::required_extensions();
             Instance::new(None, &extensions, None).expect("failed to create Vulkan instance")
@@ -162,9 +162,18 @@ impl Renderer {
             CpuAccessibleBuffer::from_iter(&device,
                                            &BufferUsage::all(),
                                            Some(queue.family()),
-                                           [Vertex { position: [-0.5, -0.25, 0.0] },
-                                            Vertex { position: [0.0, 0.5, 0.0] },
-                                            Vertex { position: [0.25, -0.1, 0.0] }]
+                                           [Vertex {
+                                                position: [-0.5, -0.25, 0.0],
+                                                color: [1.0, 0.0, 0.0],
+                                            },
+                                            Vertex {
+                                                position: [0.0, 0.5, 0.0],
+                                                color: [0.0, 1.0, 0.0],
+                                            },
+                                            Vertex {
+                                                position: [0.25, -0.1, 0.0],
+                                                color: [0.0, 0.0, 1.0],
+                                            }]
                                                .iter()
                                                .cloned())
                 .expect("failed to create buffer")
