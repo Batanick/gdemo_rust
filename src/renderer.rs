@@ -4,6 +4,8 @@ extern crate vulkano;
 extern crate winit;
 extern crate vulkano_win;
 
+extern crate cgmath;
+
 use vulkano_win::VkSurfaceBuild;
 
 use vulkano::buffer::BufferUsage;
@@ -12,7 +14,6 @@ use vulkano::command_buffer;
 use vulkano::command_buffer::DynamicState;
 use vulkano::command_buffer::PrimaryCommandBufferBuilder;
 use vulkano::command_buffer::Submission;
-use vulkano::descriptor::pipeline_layout::EmptyPipeline;
 use vulkano::device::Device;
 use vulkano::device::Queue;
 use vulkano::framebuffer::Framebuffer;
@@ -34,6 +35,22 @@ use vulkano::swapchain::Swapchain;
 use std::sync::Arc;
 use std::time::Duration;
 
+
+mod vs {
+    include!{concat!(env!("OUT_DIR"), "/shaders/shaders/main_vs.glsl")}
+}
+mod fs {
+    include!{concat!(env!("OUT_DIR"), "/shaders/shaders/main_fs.glsl")}
+}
+
+mod pipeline_layout {
+    pipeline_layout!{
+            set0: {
+                uniforms: UniformBuffer<super::super::vs::ty::Data>
+            }
+        }
+}
+
 mod render_pass {
     use vulkano::format::Format;
 
@@ -54,7 +71,7 @@ mod render_pass {
 
 #[derive(Debug, Clone)]
 struct Vertex {
-    position: [f32; 2],
+    position: [f32; 3],
 }
 impl_vertex!(Vertex, position);
 
@@ -66,11 +83,14 @@ pub struct Renderer {
     swapchain: Arc<Swapchain>,
     framebuffers: Vec<Arc<Framebuffer<render_pass::CustomRenderPass>>>,
     render_pass: Arc<render_pass::CustomRenderPass>,
+
+    pipeline_layout: Arc<pipeline_layout::CustomPipeline>,
     pipeline: Arc<GraphicsPipeline<SingleBufferDefinition<Vertex>,
-                                   EmptyPipeline,
+                                   pipeline_layout::CustomPipeline,
                                    render_pass::CustomRenderPass>>,
 
     vertex_buffer: Arc<CpuAccessibleBuffer<[Vertex]>>,
+    uniform_buffer: Arc<CpuAccessibleBuffer<vs::ty::Data>>,
 }
 
 impl Renderer {
@@ -119,13 +139,9 @@ impl Renderer {
                 .expect("failed to get surface capabilities");
 
             let dimensions = caps.current_extent.unwrap_or([1280, 1024]);
-
             let present = caps.present_modes.iter().next().unwrap();
-
             let alpha = caps.supported_composite_alpha.iter().next().unwrap();
-
             let format = caps.supported_formats[0].0;
-
             Swapchain::new(&device,
                            &window.surface(),
                            2,
@@ -146,21 +162,36 @@ impl Renderer {
             CpuAccessibleBuffer::from_iter(&device,
                                            &BufferUsage::all(),
                                            Some(queue.family()),
-                                           [Vertex { position: [-0.5, -0.25] },
-                                            Vertex { position: [0.0, 0.5] },
-                                            Vertex { position: [0.25, -0.1] }]
+                                           [Vertex { position: [-0.5, -0.25, 0.0] },
+                                            Vertex { position: [0.0, 0.5, 0.0] },
+                                            Vertex { position: [0.25, -0.1, 0.0] }]
                                                .iter()
                                                .cloned())
                 .expect("failed to create buffer")
         };
 
-        mod vs {
-            include!{concat!(env!("OUT_DIR"), "/shaders/shaders/main_vs.glsl")}
-        }
+        let proj = cgmath::perspective(cgmath::rad(3.141592 / 2.0),
+                                       {
+                                           let d = images[0].dimensions();
+                                           d[0] as f32 / d[1] as f32
+                                       },
+                                       0.01,
+                                       100.0);
+        let view = cgmath::Matrix4::look_at(cgmath::Point3::new(0.3, 0.3, 1.0),
+                                            cgmath::Point3::new(0.0, 0.0, 0.0),
+                                            cgmath::Vector3::new(0.0, -1.0, 0.0));
+        let scale = cgmath::Matrix4::from_scale(0.01);
+
+        let uniform_buffer = CpuAccessibleBuffer::from_data(&device,
+                                                            &vulkano::buffer::BufferUsage::all(),
+                                                            Some(queue.family()),
+                                                            vs::ty::Data {
+                                                                worldview: (view * scale).into(),
+                                                                proj: proj.into(),
+                                                            })
+            .expect("failed to create buffer");
+
         let vs = vs::Shader::load(&device).expect("failed to create shader module");
-        mod fs {
-            include!{concat!(env!("OUT_DIR"), "/shaders/shaders/main_fs.glsl")}
-        }
         let fs = fs::Shader::load(&device).expect("failed to create shader module");
 
         let render_pass =
@@ -173,40 +204,36 @@ impl Renderer {
 
         let vertex_input: SingleBufferDefinition<Vertex> = SingleBufferDefinition::new();
 
-        let pipeline = GraphicsPipeline::new(&device, GraphicsPipelineParams {
-            vertex_input: vertex_input,
-            vertex_shader: vs.main_entry_point(),
-            input_assembly: InputAssembly::triangle_list(),
-            tessellation: None,
-            geometry_shader: None,
-            viewport: ViewportsState::Fixed {
-                data: vec![(
-                    Viewport {
-                        origin: [0.0, 0.0],
-                        depth_range: 0.0 .. 1.0,
-                        dimensions: [images[0].dimensions()[0] as f32,
-                                     images[0].dimensions()[1] as f32],
-                    },
-                    Scissor::irrelevant()
-                )],
-            },
+        let pipeline_layout = pipeline_layout::CustomPipeline::new(&device).unwrap();
 
-            raster: Default::default(),
+        let pipeline = GraphicsPipeline::new(&device,
+                                             GraphicsPipelineParams {
+                                                 vertex_input: vertex_input,
+                                                 vertex_shader: vs.main_entry_point(),
+                                                 input_assembly: InputAssembly::triangle_list(),
+                                                 tessellation: None,
+                                                 geometry_shader: None,
+                                                 viewport: ViewportsState::Fixed {
+                                                     data: vec![(Viewport {
+                                                         origin: [0.0, 0.0],
+                                                         depth_range: 0.0..1.0,
+                                                         dimensions:
+                                                             [images[0].dimensions()[0] as f32,
+                                                              images[0].dimensions()[1] as f32],
+                                                     },
+                                                      Scissor::irrelevant())],
+                                                 },
 
-            // If we use multisampling, we can pass additional configuration.
-            multisample: Multisample::disabled(),
-
-            // See `vertex_shader`.
-            fragment_shader: fs.main_entry_point(),
-
-            depth_stencil: DepthStencil::disabled(),
-
-            blend: Blend::pass_through(),
-
-            layout: &EmptyPipeline::new(&device).unwrap(),
-
-            render_pass: Subpass::from(&render_pass, 0).unwrap(),
-        }).unwrap();
+                                                 raster: Default::default(),
+                                                 multisample: Multisample::disabled(),
+                                                 fragment_shader: fs.main_entry_point(),
+                                                 depth_stencil: DepthStencil::disabled(),
+                                                 blend: Blend::pass_through(),
+                                                 layout: &pipeline_layout,
+                                                 render_pass: Subpass::from(&render_pass, 0)
+                                                     .unwrap(),
+                                             })
+            .unwrap();
 
         let framebuffers = images.iter()
             .map(|image| {
@@ -226,15 +253,27 @@ impl Renderer {
             render_pass: render_pass,
             framebuffers: framebuffers,
             pipeline: pipeline,
+            pipeline_layout: pipeline_layout,
             vertex_buffer: vertex_buffer,
+            uniform_buffer: uniform_buffer,
         };
     }
 
     pub fn run(&self) {
-        let mut submissions: Vec<Arc<Submission>> = Vec::new();
+        let descriptor_pool =
+            vulkano::descriptor::descriptor_set::DescriptorPool::new(&self.device);
 
+        let set = pipeline_layout::set0::Set::new(&descriptor_pool,
+                                                  &self.pipeline_layout,
+                                                  &pipeline_layout::set0::Descriptors {
+                                                      uniforms: &self.uniform_buffer,
+                                                  });
+
+
+        let mut submissions: Vec<Arc<Submission>> = Vec::new();
         loop {
             submissions.retain(|s| s.destroying_would_block());
+
             let image_num = self.swapchain.acquire_next_image(Duration::new(1, 0)).unwrap();
             let command_buffer = PrimaryCommandBufferBuilder::new(&self.device,
                                                                   self.queue.family())
@@ -244,7 +283,7 @@ impl Renderer {
                 .draw(&self.pipeline,
                       &self.vertex_buffer,
                       &DynamicState::none(),
-                      (),
+                      &set,
                       &())
                 .draw_end()
                 .build();
