@@ -1,0 +1,17 @@
+[package]
+name = "rust_gdemo"
+version = "0.1.0"
+authors = ["Bot_A_Nick <Botanick333@gmail.com>"]
+build = "build.rs"
+
+[dependencies]
+vulkano = "0.2.0"
+vulkano-win = "0.2.0"
+vulkano-shaders = "0.2.0"
+cgmath = "0.7.0"
+image = "0.6.1"
+winit = "0.5.2"
+
+[build-dependencies]
+vk-sys = "0.1.1"
+vulkano-shaders = "0.2.0"
