@@ -155,11 +155,11 @@ impl Renderer {
         };
 
         mod vs {
-            include!{concat!(env!("OUT_DIR"), "/shaders/shaders/triangle_vs.glsl")}
+            include!{concat!(env!("OUT_DIR"), "/shaders/shaders/main_vs.glsl")}
         }
         let vs = vs::Shader::load(&device).expect("failed to create shader module");
         mod fs {
-            include!{concat!(env!("OUT_DIR"), "/shaders/shaders/triangle_fs.glsl")}
+            include!{concat!(env!("OUT_DIR"), "/shaders/shaders/main_fs.glsl")}
         }
         let fs = fs::Shader::load(&device).expect("failed to create shader module");
 

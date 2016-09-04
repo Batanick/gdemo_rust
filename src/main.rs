@@ -10,6 +10,5 @@ mod renderer;
 fn main() {
     let renderer = renderer::Renderer::new();
 
-    // renderer.new;
     renderer.run();
 }
