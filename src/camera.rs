@@ -26,13 +26,18 @@ impl Camera {
         }
     }
 
-    pub fn get_projection(&self) -> Matrix4<f32> {
+    pub fn get_view(&self) -> Matrix4<f32> {
         Matrix4::look_at(self.pos, self.pos + self.get_direction(), self.get_up())
     }
 
     pub fn update(&mut self, state: &window_state::WindowState, time: f32) {
         let direction = self.get_direction().normalize() * MOVE_SPEED * time;
         let right = self.get_right().normalize() * MOVE_SPEED * time;
+        let window_size = state.get_window_size();
+        let mouse_pos = state.get_mouse_pos();
+
+        self.h_angle += ROTATION_SPEED * (window_size.0 / 2 - mouse_pos.0);
+        self.v_angle += ROTATION_SPEED * (window_size.1 / 2 - mouse_pos.1);
 
         if state.is_down(winit::VirtualKeyCode::W) {
             self.pos += direction;
@@ -49,6 +54,10 @@ impl Camera {
         if state.is_down(winit::VirtualKeyCode::D) {
             self.pos += -right;
         }
+    }
+
+    pub fn get_pos(&self) -> Point3<f32> {
+        self.pos
     }
 
     fn get_right(&self) -> Vector3<f32> {

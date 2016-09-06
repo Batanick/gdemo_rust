@@ -96,6 +96,7 @@ pub struct Renderer {
 
     camera: Camera,
     window_state: WindowState,
+    submissions: Vec<Arc<Submission>>,
 }
 
 impl Renderer {
@@ -273,49 +274,37 @@ impl Renderer {
 
             camera: Camera::new(),
             window_state: window_state,
+
+            submissions: Vec::new(),
         }
     }
 
     pub fn run(&mut self) {
-        let descriptor_pool =
-            vulkano::descriptor::descriptor_set::DescriptorPool::new(&self.device);
-
-        let set = pipeline_layout::set0::Set::new(&descriptor_pool,
-                                                  &self.pipeline_layout,
-                                                  &pipeline_layout::set0::Descriptors {
-                                                      uniforms: &self.uniform_buffer,
-                                                  });
-
         let mut focused = true;
         let mut time_delta;
         let mut last_tick_time = time::precise_time_ns();
 
-        let mut submissions: Vec<Arc<Submission>> = Vec::new();
         loop {
             let current_time = time::precise_time_ns();
             time_delta = ((current_time - last_tick_time) / 1000000) as f32;
 
             if focused {
                 self.camera.update(&self.window_state, time_delta);
+                self.window.window().set_title(self.camera.get_pos());
 
-                submissions.retain(|s| s.destroying_would_block());
+                let proj = cgmath::perspective(cgmath::Rad(3.141592 / 2.0),
+                                               self.window_state.get_aspect(),
+                                               0.01,
+                                               100.0);
+                let view = self.camera.get_view();
 
-                let image_num = self.swapchain.acquire_next_image(Duration::new(1, 0)).unwrap();
-                let command_buffer = PrimaryCommandBufferBuilder::new(&self.device,
-                                                                      self.queue.family())
-                    .draw_inline(&self.render_pass,
-                                 &self.framebuffers[image_num],
-                                 render_pass::ClearValues { color: [0.0, 0.0, 1.0, 1.0] })
-                    .draw(&self.pipeline,
-                          &self.vertex_buffer,
-                          &DynamicState::none(),
-                          &set,
-                          &())
-                    .draw_end()
-                    .build();
-
-                submissions.push(command_buffer::submit(&command_buffer, &self.queue).unwrap());
-                self.swapchain.present(&self.queue, image_num).unwrap();
+                self.uniform_buffer.write(Duration::from_millis(0)).map(|oldData| {
+                    vs::ty::Data {
+                        worldview: view.into(),
+                        proj: proj.into(),
+                    }
+                });
+                self.render();
             }
 
             for ev in self.window.window().poll_events() {
@@ -345,6 +334,33 @@ impl Renderer {
 
             last_tick_time = current_time;
         }
+    }
 
+    fn render(&mut self) {
+        self.submissions.retain(|s| s.destroying_would_block());
+        let descriptor_pool =
+            vulkano::descriptor::descriptor_set::DescriptorPool::new(&self.device);
+
+        let set = pipeline_layout::set0::Set::new(&descriptor_pool,
+                                                  &self.pipeline_layout,
+                                                  &pipeline_layout::set0::Descriptors {
+                                                      uniforms: &self.uniform_buffer,
+                                                  });
+
+        let image_num = self.swapchain.acquire_next_image(Duration::new(1, 0)).unwrap();
+        let command_buffer = PrimaryCommandBufferBuilder::new(&self.device, self.queue.family())
+            .draw_inline(&self.render_pass,
+                         &self.framebuffers[image_num],
+                         render_pass::ClearValues { color: [0.0, 0.0, 1.0, 1.0] })
+            .draw(&self.pipeline,
+                  &self.vertex_buffer,
+                  &DynamicState::none(),
+                  &set,
+                  &())
+            .draw_end()
+            .build();
+
+        self.submissions.push(command_buffer::submit(&command_buffer, &self.queue).unwrap());
+        self.swapchain.present(&self.queue, image_num).unwrap();
     }
 }

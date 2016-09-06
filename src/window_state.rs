@@ -6,11 +6,11 @@ use std::collections::HashMap;
 pub struct WindowState {
     states: HashMap<winit::VirtualKeyCode, bool>,
 
-    height: u32,
-    width: u32,
+    height: f32,
+    width: f32,
 
-    mouse_x: i32,
-    mouse_y: i32,
+    mouse_x: f32,
+    mouse_y: f32,
 }
 
 impl WindowState {
@@ -21,11 +21,11 @@ impl WindowState {
         WindowState {
             states: HashMap::new(),
 
-            width: size.0,
-            height: size.1,
+            width: size.0 as f32,
+            height: size.1 as f32,
 
-            mouse_x: (size.0 / 2) as i32,
-            mouse_y: (size.1 / 2) as i32,
+            mouse_x: (size.0 / 2) as f32,
+            mouse_y: (size.1 / 2) as f32,
         }
     }
 
@@ -37,21 +37,25 @@ impl WindowState {
         self.states.get(&key).unwrap_or(&false).clone()
     }
 
-    pub fn get_mouse_pos(&self) -> (i32, i32) {
+    pub fn get_mouse_pos(&self) -> (f32, f32) {
         (self.mouse_x, self.mouse_y).clone()
     }
 
-    pub fn get_window_size(&self) -> (u32, u32) {
+    pub fn get_window_size(&self) -> (f32, f32) {
         (self.height, self.height).clone()
     }
 
     pub fn update_size(&mut self, width: u32, height: u32) {
-        self.height = height;
-        self.width = width;
+        self.height = height as f32;
+        self.width = width as f32;
     }
 
     pub fn update_mouse(&mut self, mouse_x: i32, mouse_y: i32) {
-        self.mouse_x = mouse_x;
-        self.mouse_x = mouse_y;
+        self.mouse_x = mouse_x as f32;
+        self.mouse_x = mouse_y as f32;
+    }
+
+    pub fn get_aspect(&self) -> f32 {
+        self.width / self.height
     }
 }
