@@ -36,6 +36,7 @@ use std::time::Duration;
 
 use camera::Camera;
 use window_state::WindowState;
+use fps_counter::FpsCounter;
 
 mod vs {
     include!{concat!(env!("OUT_DIR"), "/shaders/shaders/main_vs.glsl")}
@@ -96,6 +97,8 @@ pub struct Renderer {
 
     camera: Camera,
     window_state: WindowState,
+    fps_counter: FpsCounter,
+
     submissions: Vec<Arc<Submission>>,
 }
 
@@ -274,23 +277,28 @@ impl Renderer {
 
             camera: Camera::new(),
             window_state: window_state,
+            fps_counter: FpsCounter::new(),
 
             submissions: Vec::new(),
         }
     }
 
+    fn get_caption(&self) -> String {
+        format!("fps: {:?}, pos:{:?}",
+                self.fps_counter.current_fps,
+                self.camera.get_pos())
+    }
+
     pub fn run(&mut self) {
         let mut focused = true;
-        let mut time_delta;
-        let mut last_tick_time = time::precise_time_ns();
-
+        let mut time_delta: f32 = 0.0;
         loop {
-            let current_time = time::precise_time_ns();
-            time_delta = ((current_time - last_tick_time) / 1000000) as f32;
-
             if focused {
                 self.camera.update(&self.window_state, time_delta);
-                self.window.window().set_title(self.camera.get_pos());
+
+                self.window
+                    .window()
+                    .set_title(&self.get_caption());
 
                 let proj = cgmath::perspective(cgmath::Rad(3.141592 / 2.0),
                                                self.window_state.get_aspect(),
@@ -298,7 +306,7 @@ impl Renderer {
                                                100.0);
                 let view = self.camera.get_view();
 
-                self.uniform_buffer.write(Duration::from_millis(0)).map(|oldData| {
+                self.uniform_buffer.write(Duration::from_millis(0)).map(|_| {
                     vs::ty::Data {
                         worldview: view.into(),
                         proj: proj.into(),
@@ -321,18 +329,22 @@ impl Renderer {
                     winit::Event::Resized(width, height) => {
                         self.window_state.update_size(width, height)
                     }
-                    winit::Event::Focused(focus) => focused = focus,
+                    winit::Event::Focused(focus) => {
+                        focused = focus;
+                    }
                     _ => (),
                 }
             }
 
-            let size = self.window_state.get_window_size();
-            self.window
-                .window()
-                .set_cursor_position((size.0 / 2) as i32, (size.1 / 2) as i32)
-                .expect("Unable to update cursor position");
+            if focused {
+                let size = self.window_state.get_window_size();
+                self.window
+                    .window()
+                    .set_cursor_position((size.0 / 2.0) as i32, (size.1 / 2.0) as i32)
+                    .expect("Unable to update cursor position");
+            }
 
-            last_tick_time = current_time;
+            time_delta = self.fps_counter.on_frame();
         }
     }
 

@@ -42,7 +42,7 @@ impl WindowState {
     }
 
     pub fn get_window_size(&self) -> (f32, f32) {
-        (self.height, self.height).clone()
+        (self.width, self.height).clone()
     }
 
     pub fn update_size(&mut self, width: u32, height: u32) {
@@ -52,7 +52,7 @@ impl WindowState {
 
     pub fn update_mouse(&mut self, mouse_x: i32, mouse_y: i32) {
         self.mouse_x = mouse_x as f32;
-        self.mouse_x = mouse_y as f32;
+        self.mouse_y = mouse_y as f32;
     }
 
     pub fn get_aspect(&self) -> f32 {

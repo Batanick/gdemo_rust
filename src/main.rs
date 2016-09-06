@@ -9,6 +9,7 @@ extern crate time;
 mod renderer;
 mod window_state;
 mod camera;
+mod fps_counter;
 
 fn main() {
     let mut renderer = renderer::Renderer::new();
