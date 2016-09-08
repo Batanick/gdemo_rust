@@ -9,14 +9,13 @@ use vulkano_win::VkSurfaceBuild;
 
 use vulkano::buffer::BufferUsage;
 use vulkano::buffer::CpuAccessibleBuffer;
-use vulkano::command_buffer;
-use vulkano::command_buffer::DynamicState;
 use vulkano::command_buffer::PrimaryCommandBufferBuilder;
-use vulkano::command_buffer::Submission;
+use vulkano::command_buffer::DynamicState;
 use vulkano::device::Device;
 use vulkano::device::Queue;
 use vulkano::framebuffer::Framebuffer;
 use vulkano::framebuffer::Subpass;
+use vulkano::descriptor::descriptor_set::DescriptorPool;
 use vulkano::instance::Instance;
 use vulkano::pipeline::GraphicsPipeline;
 use vulkano::pipeline::GraphicsPipelineParams;
@@ -94,12 +93,11 @@ pub struct Renderer {
 
     vertex_buffer: Arc<CpuAccessibleBuffer<[Vertex]>>,
     uniform_buffer: Arc<CpuAccessibleBuffer<vs::ty::Data>>,
+    descriptor_pool: Arc<DescriptorPool>,
 
     camera: Camera,
     window_state: WindowState,
     fps_counter: FpsCounter,
-
-    submissions: Vec<Arc<Submission>>,
 }
 
 impl Renderer {
@@ -118,6 +116,7 @@ impl Renderer {
                  physical.ty());
 
         let window = winit::WindowBuilder::new().build_vk_surface(&instance).unwrap();
+        window.window().set_cursor_state(winit::CursorState::Hide).unwrap();
 
         let queue = physical.queue_families()
             .find(|q| {
@@ -171,7 +170,7 @@ impl Renderer {
                                            &BufferUsage::all(),
                                            Some(queue.family()),
                                            [Vertex {
-                                                position: [-0.5, -0.25, 0.0],
+                                                position: [-10.5, -10.25, 10.0],
                                                 color: [1.0, 0.0, 0.0],
                                             },
                                             Vertex {
@@ -179,7 +178,7 @@ impl Renderer {
                                                 color: [0.0, 1.0, 0.0],
                                             },
                                             Vertex {
-                                                position: [0.25, -0.1, 0.0],
+                                                position: [10.25, 10.1, -10.0],
                                                 color: [0.0, 0.0, 1.0],
                                             }]
                                                .iter()
@@ -263,6 +262,8 @@ impl Renderer {
             .collect::<Vec<_>>();
 
         let window_state = WindowState::new(window.window());
+        let descirptor_pool = DescriptorPool::new(&device);
+
         Renderer {
             swapchain: swapchain,
             window: window,
@@ -279,7 +280,7 @@ impl Renderer {
             window_state: window_state,
             fps_counter: FpsCounter::new(),
 
-            submissions: Vec::new(),
+            descriptor_pool: descirptor_pool,
         }
     }
 
@@ -292,8 +293,36 @@ impl Renderer {
     pub fn run(&mut self) {
         let mut focused = true;
         let mut time_delta: f32 = 0.0;
+
+        let mut submissions: Vec<Arc<vulkano::command_buffer::Submission>> = Vec::new();
+        let set = pipeline_layout::set0::Set::new(&self.descriptor_pool,
+                                                  &self.pipeline_layout,
+                                                  &pipeline_layout::set0::Descriptors {
+                                                      uniforms: &self.uniform_buffer,
+                                                  });
+
+        let command_buffers = self.framebuffers
+            .iter()
+            .map(|framebuffer| {
+                PrimaryCommandBufferBuilder::new(&self.device, self.queue.family())
+                    .draw_inline(&self.render_pass,
+                                 &framebuffer,
+                                 render_pass::ClearValues { color: [0.0, 0.0, 1.0, 1.0] })
+                    .draw(&self.pipeline,
+                          &self.vertex_buffer,
+                          &DynamicState::none(),
+                          &set,
+                          &())
+                    .draw_end()
+                    .build()
+            })
+            .collect::<Vec<_>>();
+
         loop {
             if focused {
+                submissions.retain(|s| s.destroying_would_block());
+                let image_num = self.swapchain.acquire_next_image(Duration::new(1, 0)).unwrap();
+
                 self.camera.update(&self.window_state, time_delta);
 
                 self.window
@@ -306,13 +335,26 @@ impl Renderer {
                                                100.0);
                 let view = self.camera.get_view();
 
-                self.uniform_buffer.write(Duration::from_millis(0)).map(|_| {
-                    vs::ty::Data {
-                        worldview: view.into(),
-                        proj: proj.into(),
-                    }
-                });
-                self.render();
+                self.uniform_buffer
+                    .write(Duration::from_millis(1000))
+                    .map(|old| {
+                        let data = vs::ty::Data {
+                            worldview: view.into(),
+                            proj: proj.into(),
+                        };
+
+                        println!("{:?}", old.worldview);
+                        println!("N{:?}", data.worldview);
+                        data
+                    })
+                    .expect("Unable to update universal data");
+
+
+                submissions.push(vulkano::command_buffer::submit(&command_buffers[image_num],
+                                                                 &self.queue)
+                    .unwrap());
+
+                self.swapchain.present(&self.queue, image_num).unwrap();
             }
 
             for ev in self.window.window().poll_events() {
@@ -346,33 +388,5 @@ impl Renderer {
 
             time_delta = self.fps_counter.on_frame();
         }
-    }
-
-    fn render(&mut self) {
-        self.submissions.retain(|s| s.destroying_would_block());
-        let descriptor_pool =
-            vulkano::descriptor::descriptor_set::DescriptorPool::new(&self.device);
-
-        let set = pipeline_layout::set0::Set::new(&descriptor_pool,
-                                                  &self.pipeline_layout,
-                                                  &pipeline_layout::set0::Descriptors {
-                                                      uniforms: &self.uniform_buffer,
-                                                  });
-
-        let image_num = self.swapchain.acquire_next_image(Duration::new(1, 0)).unwrap();
-        let command_buffer = PrimaryCommandBufferBuilder::new(&self.device, self.queue.family())
-            .draw_inline(&self.render_pass,
-                         &self.framebuffers[image_num],
-                         render_pass::ClearValues { color: [0.0, 0.0, 1.0, 1.0] })
-            .draw(&self.pipeline,
-                  &self.vertex_buffer,
-                  &DynamicState::none(),
-                  &set,
-                  &())
-            .draw_end()
-            .build();
-
-        self.submissions.push(command_buffer::submit(&command_buffer, &self.queue).unwrap());
-        self.swapchain.present(&self.queue, image_num).unwrap();
     }
 }
