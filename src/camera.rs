@@ -39,7 +39,6 @@ impl Camera {
         self.h_angle += ROTATION_SPEED * (window_size.0 / 2.0 - mouse_pos.0);
         self.v_angle += ROTATION_SPEED * (window_size.1 / 2.0 - mouse_pos.1);
 
-        self.pos += direction;
         if state.is_down(winit::VirtualKeyCode::W) {
             self.pos += direction;
         }

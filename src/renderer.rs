@@ -342,9 +342,6 @@ impl Renderer {
                             worldview: view.into(),
                             proj: proj.into(),
                         };
-
-                        println!("{:?}", old.worldview);
-                        println!("N{:?}", data.worldview);
                         data
                     })
                     .expect("Unable to update universal data");
