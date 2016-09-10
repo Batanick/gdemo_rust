@@ -5,9 +5,9 @@ authors = ["Bot_A_Nick <Botanick333@gmail.com>"]
 build = "build.rs"
 
 [dependencies]
-vulkano = "0.2.0"
-vulkano-win = "0.2.0"
-vulkano-shaders = "0.2.0"
+vulkano = "0.2.1"
+vulkano-win = "0.2.1"
+vulkano-shaders = "0.2.1"
 cgmath = "0.11.0"
 image = "0.6.1"
 winit = "0.5.2"

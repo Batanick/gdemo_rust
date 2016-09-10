@@ -36,7 +36,7 @@ impl Camera {
         let window_size = state.get_window_size();
         let mouse_pos = state.get_mouse_pos();
 
-        self.h_angle += ROTATION_SPEED * (window_size.0 / 2.0 - mouse_pos.0);
+        self.h_angle -= ROTATION_SPEED * (window_size.0 / 2.0 - mouse_pos.0);
         self.v_angle += ROTATION_SPEED * (window_size.1 / 2.0 - mouse_pos.1);
 
         if state.is_down(winit::VirtualKeyCode::W) {
@@ -73,6 +73,6 @@ impl Camera {
     }
 
     fn get_up(&self) -> Vector3<f32> {
-        self.get_right().cross(self.get_direction())
+        self.get_direction().cross(self.get_right())
     }
 }

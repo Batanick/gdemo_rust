@@ -170,15 +170,15 @@ impl Renderer {
                                            &BufferUsage::all(),
                                            Some(queue.family()),
                                            [Vertex {
-                                                position: [-10.5, -10.25, 10.0],
+                                                position: [-1.0, 0.0, -1.0],
                                                 color: [1.0, 0.0, 0.0],
                                             },
                                             Vertex {
-                                                position: [0.0, 0.5, 0.0],
+                                                position: [1.0, 0.0, 1.0],
                                                 color: [0.0, 1.0, 0.0],
                                             },
                                             Vertex {
-                                                position: [10.25, 10.1, -10.0],
+                                                position: [0.0, 1.0, 0.0],
                                                 color: [0.0, 0.0, 1.0],
                                             }]
                                                .iter()
@@ -196,13 +196,12 @@ impl Renderer {
         let view = cgmath::Matrix4::look_at(cgmath::Point3::new(0.3, 0.3, 1.0),
                                             cgmath::Point3::new(0.0, 0.0, 0.0),
                                             cgmath::Vector3::new(0.0, -1.0, 0.0));
-        let scale = cgmath::Matrix4::from_scale(0.01);
 
         let uniform_buffer = CpuAccessibleBuffer::from_data(&device,
                                                             &vulkano::buffer::BufferUsage::all(),
                                                             Some(queue.family()),
                                                             vs::ty::Data {
-                                                                worldview: (view * scale).into(),
+                                                                worldview: view.into(),
                                                                 proj: proj.into(),
                                                             })
             .expect("failed to create buffer");
@@ -301,24 +300,32 @@ impl Renderer {
                                                       uniforms: &self.uniform_buffer,
                                                   });
 
-        let command_buffers = self.framebuffers
-            .iter()
-            .map(|framebuffer| {
-                PrimaryCommandBufferBuilder::new(&self.device, self.queue.family())
-                    .draw_inline(&self.render_pass,
-                                 &framebuffer,
-                                 render_pass::ClearValues { color: [0.0, 0.0, 1.0, 1.0] })
-                    .draw(&self.pipeline,
-                          &self.vertex_buffer,
-                          &DynamicState::none(),
-                          &set,
-                          &())
-                    .draw_end()
-                    .build()
-            })
-            .collect::<Vec<_>>();
-
         loop {
+            let proj = cgmath::perspective(cgmath::Rad(3.141592 / 2.0), 1.333, 0.01, 100.0);
+
+            let uniforms = vs::ty::Data {
+                worldview: self.camera.get_view().into(),
+                proj: proj.into(),
+            };
+
+            let command_buffers = self.framebuffers
+                .iter()
+                .map(|framebuffer| {
+                    PrimaryCommandBufferBuilder::new(&self.device, self.queue.family())
+                        .update_buffer(&self.uniform_buffer, &uniforms)
+                        .draw_inline(&self.render_pass,
+                                     &framebuffer,
+                                     render_pass::ClearValues { color: [0.0, 0.0, 1.0, 1.0] })
+                        .draw(&self.pipeline,
+                              &self.vertex_buffer,
+                              &DynamicState::none(),
+                              &set,
+                              &())
+                        .draw_end()
+                        .build()
+                })
+                .collect::<Vec<_>>();
+
             if focused {
                 submissions.retain(|s| s.destroying_would_block());
                 let image_num = self.swapchain.acquire_next_image(Duration::new(1, 0)).unwrap();
@@ -329,24 +336,6 @@ impl Renderer {
                     .window()
                     .set_title(&self.get_caption());
 
-                let proj = cgmath::perspective(cgmath::Rad(3.141592 / 2.0),
-                                               self.window_state.get_aspect(),
-                                               0.01,
-                                               100.0);
-                let view = self.camera.get_view();
-
-                self.uniform_buffer
-                    .write(Duration::from_millis(1000))
-                    .map(|old| {
-                        let data = vs::ty::Data {
-                            worldview: view.into(),
-                            proj: proj.into(),
-                        };
-                        data
-                    })
-                    .expect("Unable to update universal data");
-
-
                 submissions.push(vulkano::command_buffer::submit(&command_buffers[image_num],
                                                                  &self.queue)
                     .unwrap());
@@ -356,7 +345,7 @@ impl Renderer {
 
             for ev in self.window.window().poll_events() {
                 match ev {
-                    winit::Event::Closed => break,
+                    winit::Event::Closed => return,
                     winit::Event::KeyboardInput(state, _, key_code) => {
                         self.window_state
                             .switch(key_code.unwrap_or(winit::VirtualKeyCode::NoConvert),
