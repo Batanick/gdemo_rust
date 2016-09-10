@@ -33,6 +33,9 @@ use vulkano::swapchain::Swapchain;
 use std::sync::Arc;
 use std::time::Duration;
 
+use cgmath::prelude::One;
+use cgmath::Matrix4;
+
 use camera::Camera;
 use window_state::WindowState;
 use fps_counter::FpsCounter;
@@ -186,36 +189,23 @@ impl Renderer {
                 .expect("failed to create buffer")
         };
 
-        let proj = cgmath::perspective(cgmath::Rad(3.141592 / 2.0),
-                                       {
-                                           let d = images[0].dimensions();
-                                           d[0] as f32 / d[1] as f32
-                                       },
-                                       0.01,
-                                       100.0);
-        let view = cgmath::Matrix4::look_at(cgmath::Point3::new(0.3, 0.3, 1.0),
-                                            cgmath::Point3::new(0.0, 0.0, 0.0),
-                                            cgmath::Vector3::new(0.0, -1.0, 0.0));
-
         let uniform_buffer = CpuAccessibleBuffer::from_data(&device,
                                                             &vulkano::buffer::BufferUsage::all(),
                                                             Some(queue.family()),
                                                             vs::ty::Data {
-                                                                worldview: view.into(),
-                                                                proj: proj.into(),
+                                                                worldview: Matrix4::one().into(),
+                                                                proj: Matrix4::one().into(),
                                                             })
             .expect("failed to create buffer");
 
         let vs = vs::Shader::load(&device).expect("failed to create shader module");
         let fs = fs::Shader::load(&device).expect("failed to create shader module");
 
-        let render_pass =
-            render_pass::CustomRenderPass::new(&device,
-                                               &render_pass::Formats {
-                                                   // Use the format of the images and one sample.
-                                                   color: (images[0].format(), 1),
-                                               })
-                .unwrap();
+        let render_pass = render_pass::CustomRenderPass::new(&device,
+                                                             &render_pass::Formats {
+                                                                 color: (images[0].format(), 1),
+                                                             })
+            .unwrap();
 
         let vertex_input: SingleBufferDefinition<Vertex> = SingleBufferDefinition::new();
 
@@ -293,44 +283,47 @@ impl Renderer {
         let mut focused = true;
         let mut time_delta: f32 = 0.0;
 
-        let mut submissions: Vec<Arc<vulkano::command_buffer::Submission>> = Vec::new();
         let set = pipeline_layout::set0::Set::new(&self.descriptor_pool,
                                                   &self.pipeline_layout,
                                                   &pipeline_layout::set0::Descriptors {
                                                       uniforms: &self.uniform_buffer,
                                                   });
 
+        let command_buffers = self.framebuffers
+            .iter()
+            .map(|framebuffer| {
+                PrimaryCommandBufferBuilder::new(&self.device, self.queue.family())
+                    .draw_inline(&self.render_pass,
+                                 &framebuffer,
+                                 render_pass::ClearValues { color: [0.0, 0.0, 1.0, 1.0] })
+                    .draw(&self.pipeline,
+                          &self.vertex_buffer,
+                          &DynamicState::none(),
+                          &set,
+                          &())
+                    .draw_end()
+                    .build()
+            })
+            .collect::<Vec<_>>();
+
+        let mut submissions: Vec<Arc<vulkano::command_buffer::Submission>> = Vec::new();
+
         loop {
-            let proj = cgmath::perspective(cgmath::Rad(3.141592 / 2.0), 1.333, 0.01, 100.0);
+            self.camera.update(&self.window_state, time_delta);
 
-            let uniforms = vs::ty::Data {
-                worldview: self.camera.get_view().into(),
-                proj: proj.into(),
-            };
-
-            let command_buffers = self.framebuffers
-                .iter()
-                .map(|framebuffer| {
-                    PrimaryCommandBufferBuilder::new(&self.device, self.queue.family())
-                        .update_buffer(&self.uniform_buffer, &uniforms)
-                        .draw_inline(&self.render_pass,
-                                     &framebuffer,
-                                     render_pass::ClearValues { color: [0.0, 0.0, 1.0, 1.0] })
-                        .draw(&self.pipeline,
-                              &self.vertex_buffer,
-                              &DynamicState::none(),
-                              &set,
-                              &())
-                        .draw_end()
-                        .build()
-                })
-                .collect::<Vec<_>>();
+            {
+                let mut content = self.uniform_buffer.write(Duration::new(1, 0)).unwrap();
+                content.worldview = self.camera.get_view().into();
+                content.proj = cgmath::perspective(cgmath::Rad(3.141592 / 2.0),
+                                                   self.window_state.get_aspect(),
+                                                   0.01,
+                                                   100.0)
+                    .into();
+            }
 
             if focused {
                 submissions.retain(|s| s.destroying_would_block());
                 let image_num = self.swapchain.acquire_next_image(Duration::new(1, 0)).unwrap();
-
-                self.camera.update(&self.window_state, time_delta);
 
                 self.window
                     .window()
